@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/images">
+        <file>chat_bg.jpeg</file>
+    </qresource>
+</RCC>
