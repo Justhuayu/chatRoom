@@ -5,6 +5,8 @@
 #include <unistd.h>
 #include <cstring> // for strerror
 #include <fcntl.h>
+#include <memory>
+
 void set_nonblocking(int &fd);//设置文件为非阻塞
 EpollServer::EpollServer(int port,int events_size){
     m_socket_port = port;//监听端口号
@@ -92,7 +94,7 @@ void EpollServer::epollReactor(){
                 //有新连接
                 std::cout<<"listen fd: "<<m_listen_fd<<std::endl;
                 sockaddr_in client_addr;
-                ssize_t client_size;
+                ssize_t client_size = sizeof(client_addr);
                 int client_fd = accept(m_listen_fd,(sockaddr*)&client_addr,(socklen_t*)&client_size);
                 if(client_fd == -1){
                     std::cerr << "accept() error:  " << strerror(errno) << std::endl;

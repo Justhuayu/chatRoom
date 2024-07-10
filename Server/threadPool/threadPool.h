@@ -7,6 +7,8 @@
 #include <mutex>
 #include <condition_variable>
 #include <thread>
+#include <memory>
+
 template <typename T>
 class threadPool
 {
