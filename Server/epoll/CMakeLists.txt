@@ -1,9 +1,12 @@
-#epoll/CMakeLists.txt
 cmake_minimum_required(VERSION 3.10)
-project(epollServer)
-
-include_directories(${CMAKE_SOURCE_DIR}/threadPool)
 
 # 添加你的源文件
-add_library(epollServer epollServer.cpp)
-target_link_libraries(epollServer threadPool)
+add_library(epollServerLib epollServer.cpp)
+
+# 设置包含目录
+target_include_directories(epollServerLib PUBLIC 
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+# 链接库
+target_link_libraries(epollServerLib  msgProcessLib protocolLib threadPoolLib)
