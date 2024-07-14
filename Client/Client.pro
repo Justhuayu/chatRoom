@@ -10,11 +10,14 @@ CONFIG += c++17
 SOURCES += \
     chatWidget.cpp \
     main.cpp \
-    tcpConnect.cpp
+    tcpConnect.cpp \
+    userData.cpp
 
 HEADERS += \
     chatWidget.h \
-    tcpConnect.h
+    protocol.h \
+    tcpConnect.h \
+    userData.h
 
 FORMS += \
     chatWidget.ui

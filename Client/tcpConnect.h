@@ -1,7 +1,9 @@
 #ifndef TCPCONNECT_H
 #define TCPCONNECT_H
+#include "protocol.h"
 #include <QObject>
 #include <QTcpSocket>
+//tcp连接，用于收发数据
 class TcpConnect : public QObject
 {
     Q_OBJECT
@@ -10,10 +12,11 @@ public:
 
     void connectToServer();//连接tcp
     void disconnectToServer();//断开tcp连接
+    bool sendJsonData(const tcp_protocol::communication_head &head,const char* data);//发送二进制数据到后端
 public:
     QString peer_ip;//ip
     int16_t peer_port;//端口
-    bool m_tcp_isConnect;//tcp连接状态
+    bool tcp_isConnect;//tcp连接状态
 
 signals:
     void tcp_connected();//tcp连接成功后，通知widget
