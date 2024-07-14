@@ -1,24 +1,18 @@
-cmake_minimum_required(VERSION 3.10) #最低版本
+cmake_minimum_required(VERSION 3.10)
 
-project(chatRoomServer VERSION 1.0) #项目名称及自定义版本号
+# 项目信息
+project(chatRoomServer)
 
-# 添加子目录
+# 包含子目录CMakeLists
 add_subdirectory(epoll)
+add_subdirectory(msgProcess)
+add_subdirectory(protocol)
 add_subdirectory(threadPool)
+add_subdirectory(mysqlPool)
 
-# 设置包含目录
-include_directories(${CMAKE_SOURCE_DIR}/epoll)
-include_directories(${CMAKE_SOURCE_DIR}/threadPool)
-
-# 添加源文件
-set(SOURCE_FILES
-    main.cpp
-)
 
 # 添加可执行文件
-add_executable(chatRoomServer ${SOURCE_FILES})
+add_executable(chatRoomServer main.cpp)
 
-# 链接 epollServer 库
-target_link_libraries(chatRoomServer 
-                        epollServer 
-                        threadPool)
+# 链接库
+target_link_libraries(chatRoomServer epollServerLib)
