@@ -8,15 +8,15 @@
 #include <condition_variable>
 #include <thread>
 #include <memory>
-
+#include "mysqlPool.h"
 template <typename T>
-class threadPool
+class ThreadPool
 {
 private:
     /* data */
 public:
-    threadPool();
-    ~threadPool();
+    ThreadPool();
+    ~ThreadPool();
     void append(std::shared_ptr<T> arg);//向工作队列中添加
     
 private:
@@ -32,7 +32,7 @@ private:
 };
 template <typename T>
 
-threadPool<T>::threadPool()
+ThreadPool<T>::ThreadPool()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     size_t m_thread_numbers = std::thread::hardware_concurrency() * THREAD_NUMBER_FACTOR;
@@ -57,7 +57,7 @@ threadPool<T>::threadPool()
     }
 }
 template <typename T>
-threadPool<T>::~threadPool()
+ThreadPool<T>::~ThreadPool()
 {   
     //停止所有线程
     {
@@ -71,13 +71,15 @@ threadPool<T>::~threadPool()
     delete[] m_threads;
 }
 template <typename T>
-void* threadPool<T>::worker(void* arg){
-    threadPool* pool = static_cast<threadPool*>(arg);
+void* ThreadPool<T>::worker(void* arg){
+    ThreadPool* pool = static_cast<ThreadPool*>(arg);
+    //TODO：mysql连接池
+
     pool->run();
     return nullptr;
 }
 template <typename T>
-void threadPool<T>::run(){
+void ThreadPool<T>::run(){
     //从工作队列中取
     while(1){
         std::unique_lock<std::mutex> lock(m_mutex);
@@ -87,12 +89,13 @@ void threadPool<T>::run(){
         auto task = m_work_queue.front();
         m_work_queue.pop_front();
         lock.unlock();  // 解锁，以便其他线程可以访问队列
+        //TODO：运行函数时，增加数据处理参数，以调用连接池
         task->func(task->arg);        
     }
     
 }
 template <typename T>
-void threadPool<T>::append(std::shared_ptr<T> arg){
+void ThreadPool<T>::append(std::shared_ptr<T> arg){
     //向工作队列中添加
    {
         std::lock_guard<std::mutex> lock(m_mutex);

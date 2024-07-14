@@ -71,7 +71,7 @@ void set_nonblocking(int &fd) {
 void EpollServer::run()
 {
     //线程池监听读写列表，并处理
-    m_thread_pool = new threadPool<rw_event_struct>;
+    m_thread_pool = new ThreadPool<rw_event_struct>;
     //主线程接收连接，读写事件放入列表中
     epollReactor();
 }
@@ -103,36 +103,42 @@ void EpollServer::epollReactor(){
                 event.data.fd = client_fd;
                 event.events = EPOLLIN|EPOLLET;//边沿模式
                 epoll_ctl(m_epfd,EPOLL_CTL_ADD,client_fd,&event);
+                //新连接对应一个MsgProcess类，用于存储登陆状态、权限等信息
+                MsgProcess* msg = new MsgProcess(m_epfd,client_fd);
+                m_fd2MsgProcess.insert(std::pair<int,MsgProcess*>(client_fd,msg));
                 std::cout<<"connect success! fd = "<<client_fd<<std::endl;
             }else{
                 //处理读事件和写事件
-                if(events[i].events == EPOLLIN){
-                    //TODO：开新线程，处理事件，队列要加锁，影响性能？
-                    auto task = std::make_shared<rw_event_struct>();
-                    task->arg = events[i];
-                    task->func = std::bind(&EpollServer::handler_read, this, std::placeholders::_1);
-                    m_thread_pool->append(task);
-                }else if(events[i].events == EPOLLOUT){
-                   auto task = std::make_shared<rw_event_struct>();
-                    task->arg = events[i];
-                    task->func = std::bind(&EpollServer::handler_write, this, std::placeholders::_1);
-                    m_thread_pool->append(task);
-                }else{
+                if(events[i].events != EPOLLIN && events[i].events != EPOLLOUT){
                     //TODO：其它事件处理
+                    //TODO：关闭socket，根据socket fd 释放MsgProcess
                 }
+                //TODO：开新线程，处理事件，队列要加锁，影响性能？
+                auto task = std::make_shared<rw_event_struct>();
+                task->arg = events[i];
+                task->func = std::bind(&EpollServer::handler_event, this, std::placeholders::_1);
+                m_thread_pool->append(task);
+               
             }
         }
     }
 }
 
-//处理读事件
-void EpollServer::handler_read(struct epoll_event event){
-    std::cout<<"this is EPOLLIN"<<std::endl;
-    event.events = EPOLLOUT|EPOLLET;//边沿模式
-    epoll_ctl(m_epfd,EPOLL_CTL_MOD,event.data.fd,&event);
-}
-//处理写事件
-void EpollServer::handler_write(struct epoll_event event){
-    std::cout<<"this is EPOLLOUT"<<std::endl;
+//处理事件
+void EpollServer::handler_event(struct epoll_event event){
+    // std::cout<<"this is EPOLLIN"<<std::endl;
+    // event.events = EPOLLOUT|EPOLLET;//边沿模式
+    // epoll_ctl(m_epfd,EPOLL_CTL_MOD,event.data.fd,&event);
+    
+    //调试多线程是否成功
+    pthread_t thread_id = pthread_self();
+    std::cout<<"当前执行线程： "<<thread_id<<std::endl;
 
+    auto it = m_fd2MsgProcess.find(event.data.fd);
+    if(it == m_fd2MsgProcess.end()){
+        std::cout<<"fd"<<event.data.fd<< "未连接，读事件失败。"<<std::endl;
+        return;
+    }
+    MsgProcess* msg = it->second;
+    msg->run(event);
 }
