@@ -9,4 +9,4 @@ target_include_directories(epollServerLib PUBLIC
 )
 
 # 链接库
-target_link_libraries(epollServerLib  msgProcessLib protocolLib threadPoolLib)
+target_link_libraries(epollServerLib  msgProcessLib threadPoolLib)
