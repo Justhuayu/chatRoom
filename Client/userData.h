@@ -9,7 +9,7 @@ class UserData : public QObject
 public:
     explicit UserData(QObject *parent = nullptr);
 public:
-    bool user_isLogin;
+    bool isLogin;
 };
 
 #endif // USERDATA_H

@@ -7,6 +7,7 @@
 #include <QByteArray>
 #include <cstring>
 #include <cstdlib>
+#include <QKeyEvent>
 #include "protocol.h"
 ChatWidget::ChatWidget(QWidget *parent)
     : QWidget(parent)
@@ -17,6 +18,9 @@ ChatWidget::ChatWidget(QWidget *parent)
     connect(m_tcpConn,SIGNAL(tcp_connected()),this,SLOT(m_tcp_connected()));
     connect(m_tcpConn,SIGNAL(tcp_connect_error(QString)),this,SLOT(m_tcp_connecte_error(QString)));
     connect(m_tcpConn,SIGNAL(tcp_disconnected()),this,SLOT(m_tcp_disconnected()));
+    connect(this,SIGNAL(sendTextMsg(const QString)),this,SLOT(m_send_text_msg(const QString)));
+    //输入文本框安装事件过滤器
+    ui->msg_input_textEdit->installEventFilter(this);
 }
 
 ChatWidget::~ChatWidget()
@@ -65,28 +69,38 @@ void ChatWidget::m_tcp_connecte_error(const QString &error){
 void ChatWidget::chatWidget_change(){
     //conn_flag true表示tcp成功连接
     bool conn_flag = m_tcpConn->tcp_isConnect;
-    if(conn_flag){
-        ui->connect_pushButton->setText(u8"断开");
-        ui->login_title->setText(u8"请登陆");
-
-    }else{
-        ui->connect_pushButton->setText(u8"连接");
-        ui->login_title->setText(u8"请连接服务器");
-    }
+    //tcp连接模块
     ui->ip_lineEdit->setEnabled(!conn_flag);
     ui->port_spinBox->setEnabled(!conn_flag);
-    ui->login_pushButton->setEnabled(conn_flag);
-    ui->register_pushButton->setEnabled(conn_flag);
-    ui->username_lineEdit->setEnabled(conn_flag);
-    ui->passwd_lineEdit->setEnabled(conn_flag);
 
-    //login_flag true 表示登陆成功
-    bool login_flag = m_userData->user_isLogin;
+    //login_flag true 表示登陆成功 且 tcp连接成功
+    bool login_flag = m_userData->isLogin;
+    //左侧消息接收发送模块
     ui->msg_input_textEdit->setEnabled(login_flag);
     ui->msg_output_listWidget->setEnabled(login_flag);
     ui->file_toolButton->setEnabled(login_flag);
     ui->img_toolButton->setEnabled(login_flag);
-
+    //登陆模块
+    ui->login_pushButton->setEnabled(conn_flag && !login_flag);
+    ui->register_pushButton->setEnabled(conn_flag && !login_flag);
+    ui->username_lineEdit->setEnabled(conn_flag && !login_flag);
+    ui->passwd_lineEdit->setEnabled(conn_flag && !login_flag);
+    //渲染文本
+    if(conn_flag){
+        //tcp连接成功
+        ui->connect_pushButton->setText(u8"断开");
+        if(login_flag){
+            //tcp连接成功 && 登陆
+            ui->login_title->setText(u8"登陆成功");
+        }else{
+            //tcp连接成功 && 未登陆
+            ui->login_title->setText(u8"请登陆");
+        }
+    }else{
+        //tcp未连接
+        ui->connect_pushButton->setText(u8"连接");
+        ui->login_title->setText(u8"请连接服务器");
+    }
 }
 
 void ChatWidget::on_register_pushButton_clicked()
@@ -109,15 +123,12 @@ void ChatWidget::on_login_pushButton_clicked()
     //md5加密
     QString username_md5 = QCryptographicHash::hash(username_text.toUtf8(),QCryptographicHash::Md5).toHex();
     QString passwd_md5 = QCryptographicHash::hash(passswd_text.toUtf8(),QCryptographicHash::Md5).toHex();
-    qDebug()<<"username_md5 "<<username_md5;
     //数据部分
-//    char* data = (char*)malloc(buffer_sizes::LOGIN_BUFFER_SIZE*sizeof(char));
     //智能指针，防止内存泄漏
     std::unique_ptr<char[]> data(new char[buffer_sizes::LOGIN_BUFFER_SIZE]);
     memset(data.get(),0,buffer_sizes::LOGIN_BUFFER_SIZE*sizeof(char));
     QByteArray username_bytes = QByteArray::fromHex(username_md5.toUtf8());
     QByteArray passwd_bytes = QByteArray::fromHex(passwd_md5.toUtf8());
-    qDebug()<<username_bytes.size()<<" "<<passwd_bytes.size();
     std::memcpy(data.get(), username_bytes.data(), username_bytes.size());
     std::memcpy(data.get()+username_bytes.size(), passwd_bytes.data(), passwd_bytes.size());
     //数据头
@@ -125,19 +136,107 @@ void ChatWidget::on_login_pushButton_clicked()
     head.event = static_cast<quint8>(tcp_protocol::communication_events::LOGIN);
     head.size = static_cast<quint64>(username_bytes.size() + passwd_bytes.size());
     head.time = static_cast<quint64>(QDateTime::currentSecsSinceEpoch());
-    if(!m_tcpConn->sendJsonData(head,data.get())){
+    if(!m_tcpConn->sendData(head,data.get())){
         QMessageBox::critical(this,u8"错误",u8"登陆请求失败！",QMessageBox::Ok);
         return;
     }
-
-//    QJsonObject login_data;
-//    login_data["events"] = tcp_protocol::communication_events::LOGIN;
-//    login_data["time"] = QDateTime::currentDateTime().toString(Qt::ISODate);
-//    login_data["data"] = data;
-//    qDebug()<<sizeof(login_data.size());
-//    qDebug()<<sizeof(login_data["events"]);
-//    qDebug()<<sizeof(login_data["time"]);
-//    qDebug()<<sizeof(login_data["data"]);
-
+    //接收后端登陆成功/失败消息提示
+    head = m_tcpConn->recvData();
+    //解析从服务器收到的head数据
+    if(head.event == tcp_protocol::communication_events::LOGIN_FAILED){
+        QMessageBox::information(this,u8"提示",u8"帐号或密码错误，登陆失败！",QMessageBox::Ok);
+        return;
+    }
+    m_userData->isLogin = true;
+    chatWidget_change();
 }
+
+//事件过滤器
+bool ChatWidget::eventFilter(QObject *watched, QEvent *event){
+    if(watched == ui->msg_input_textEdit && event->type() == QEvent::KeyPress){
+        QKeyEvent *keyEvent = static_cast<QKeyEvent*>(event);
+        //回车键事件
+        if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
+            // 检查是否按下了 Shift 键
+            if (!(keyEvent->modifiers() & Qt::ShiftModifier)) {
+                // 没有按 Shift+回车键，发送消息，否则默认换行
+                key_return_mInputTextEdit();
+            }
+        }
+    }
+    return QWidget::eventFilter(watched,event);
+}
+
+//输入文本框按下回车键事件
+void ChatWidget::key_return_mInputTextEdit(){
+    //1. 获取数据
+    QString input_msg = ui->msg_input_textEdit->toPlainText();
+//    QString input_msg = u8"123";
+    //TODO: 文件/图片消息，如何链接到input_textEdit中？
+    //2. 发送到服务器
+    //数据部分
+    //智能指针，防止内存泄漏
+    auto send_data_type = tcp_protocol::communication_events::CLIENT_SEND_TEXT;
+    int send_buffer_size =buffer_sizes::CLIENT_SEND_TEXT_BUFFER_SIZE;
+    //TODO：循环发送消息
+    std::unique_ptr<char[]> data(new char[send_buffer_size]);
+    memset(data.get(),0,send_buffer_size*sizeof(char));
+    QByteArray send_data = input_msg.toUtf8();
+    std::memcpy(data.get(), send_data.data(), send_data.size());
+    //数据头
+    tcp_protocol::communication_head head;
+    head.event = static_cast<quint8>(send_data_type);
+    head.size = static_cast<quint64>(send_data.size());
+    head.time = static_cast<quint64>(QDateTime::currentSecsSinceEpoch());
+    if(!m_tcpConn->sendData(head,data.get())){
+        QMessageBox::critical(this,u8"错误",u8"发送数据失败！",QMessageBox::Ok);
+        return;
+    }
+    //3. 通过信号 渲染到 msg_output_listWidget
+    emit sendTextMsg(input_msg);
+    //4. 清空输入框
+    ui->msg_input_textEdit->clear();
+    ui->msg_input_textEdit->moveCursor(QTextCursor::Start);
+}
+
+//发送数据，渲染list widget
+void ChatWidget::m_send_text_msg(const QString &input_msg){
+    QLabel *label = new QLabel(input_msg, this);
+    //启用标签的自动换行功能
+    label->setWordWrap(true);
+
+    // 创建QWidget作为容器
+    QWidget *widgetContainer = new QWidget(this);
+    QHBoxLayout *layout = new QHBoxLayout(widgetContainer);
+    layout->addStretch();  // 添加一个伸展项目，使文本靠右对齐
+    layout->addWidget(label);
+    layout->setContentsMargins(0, 10, 20, 10);  // 去除边距
+    layout->setSpacing(0);  // 去除间距
+
+    QListWidgetItem *item = new QListWidgetItem(ui->msg_output_listWidget);
+    item->setSizeHint(widgetContainer->sizeHint());
+
+    ui->msg_output_listWidget->addItem(item);
+    ui->msg_output_listWidget->setItemWidget(item, widgetContainer);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
