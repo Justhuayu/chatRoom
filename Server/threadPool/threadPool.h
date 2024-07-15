@@ -36,6 +36,7 @@ ThreadPool<T>::ThreadPool()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     size_t m_thread_numbers = std::thread::hardware_concurrency() * THREAD_NUMBER_FACTOR;
+    // size_t m_thread_numbers = 1;
     if (m_thread_numbers == 0) {
         m_thread_numbers = 4; // 默认值，如果无法获取硬件并行度
     }
