@@ -4,7 +4,7 @@
 #include <sys/epoll.h>
 #include <openssl/md5.h>
 #include <openssl/evp.h>
-
+#include <chrono>
 // 将二进制数据转换回十六进制字符串
 std::string MsgUtils::toHex(const char* data, size_t length) {
     const char hex_digits[] = "0123456789abcdef";
@@ -59,6 +59,7 @@ bool MsgUtils::readError(const int &ret,int epfd,int fd){
     }else if(ret == 0){
         //对端关闭，修改事件
         //TODO:通过修改事件，在遍历epoll时关闭，当并发很高时，是否会影响性能？
+        std::cout<<fd<<" 关闭连接"<<std::endl;
         struct epoll_event ev;
         ev.data.fd = fd;
         ev.events = EPOLLRDHUP;
@@ -66,4 +67,16 @@ bool MsgUtils::readError(const int &ret,int epfd,int fd){
         return false;
     }
     return true;
+}
+
+// 获取当前时间的秒数并转换为64位整数
+uint64_t MsgUtils::getCurrentTimeInSeconds() {
+    // 获取当前时间点
+    auto now = std::chrono::system_clock::now();
+
+    // 获取从纪元时间（1970-01-01 00:00:00 UTC）开始的秒数
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch());
+
+    // 转换为64位整数
+    return static_cast<uint64_t>(duration.count());
 }

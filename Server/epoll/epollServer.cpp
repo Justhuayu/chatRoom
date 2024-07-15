@@ -102,11 +102,12 @@ void EpollServer::epollReactor(){
                 }
                 event.data.fd = client_fd;
                 event.events = EPOLLIN|EPOLLET;//边沿模式
+                set_nonblocking(client_fd);//非阻塞
                 epoll_ctl(m_epfd,EPOLL_CTL_ADD,client_fd,&event);
                 //新连接对应一个MsgProcess类，用于存储登陆状态、权限等信息
                 MsgProcess* msg = new MsgProcess(m_epfd,client_fd);
                 m_fd2MsgProcess.insert(std::pair<int,MsgProcess*>(client_fd,msg));
-                std::cout<<"connect success! fd = "<<client_fd<<std::endl;
+                // std::cout<<"connect success! fd = "<<client_fd<<std::endl;
             }else{
                 //处理读事件和写事件
                 if(events[i].events != EPOLLIN && events[i].events != EPOLLOUT){
@@ -118,7 +119,6 @@ void EpollServer::epollReactor(){
                 task->arg = events[i];
                 task->func = std::bind(&EpollServer::handler_event, this, std::placeholders::_1);
                 m_thread_pool->append(task);
-               
             }
         }
     }
@@ -132,7 +132,7 @@ void EpollServer::handler_event(struct epoll_event event){
     
     //调试多线程是否成功
     pthread_t thread_id = pthread_self();
-    std::cout<<"当前执行线程： "<<thread_id<<std::endl;
+    std::cout<<"当前执行线程： "<<thread_id<<" 处理fd："<<event.data.fd<<std::endl;
 
     auto it = m_fd2MsgProcess.find(event.data.fd);
     if(it == m_fd2MsgProcess.end()){
