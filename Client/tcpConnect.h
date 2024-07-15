@@ -12,12 +12,12 @@ public:
 
     void connectToServer();//连接tcp
     void disconnectToServer();//断开tcp连接
-    bool sendJsonData(const tcp_protocol::communication_head &head,const char* data);//发送二进制数据到后端
+    bool sendData(const tcp_protocol::communication_head &head,const char* data);//发送二进制数据到后端
+    tcp_protocol::communication_head recvData();//从后端接收二进制数据
 public:
     QString peer_ip;//ip
     int16_t peer_port;//端口
     bool tcp_isConnect;//tcp连接状态
-
 signals:
     void tcp_connected();//tcp连接成功后，通知widget
     void tcp_disconnected();//tco断开连接后，通知widget
