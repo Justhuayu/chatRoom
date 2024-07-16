@@ -31,8 +31,11 @@ private slots:
     void m_tcp_disconnected();//tcp断开连接，改变按钮
     void m_tcp_connecte_error(const QString &error);//tcp连接错误
     void m_send_text_msg(const QString &input_msg);//发送text信息
+    void m_login_response(tcp_protocol::communication_head head);//接收登陆请求回应
+    void m_recv_text(QString text);//接收到文本信息
     void on_register_pushButton_clicked();
     void on_login_pushButton_clicked();
+
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 };

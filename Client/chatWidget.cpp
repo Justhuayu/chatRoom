@@ -19,6 +19,8 @@ ChatWidget::ChatWidget(QWidget *parent)
     connect(m_tcpConn,SIGNAL(tcp_connect_error(QString)),this,SLOT(m_tcp_connecte_error(QString)));
     connect(m_tcpConn,SIGNAL(tcp_disconnected()),this,SLOT(m_tcp_disconnected()));
     connect(this,SIGNAL(sendTextMsg(const QString)),this,SLOT(m_send_text_msg(const QString)));
+    connect(m_tcpConn,SIGNAL(tcp_login_response(tcp_protocol::communication_head)),this,SLOT(m_login_response(tcp_protocol::communication_head)));
+    connect(m_tcpConn,SIGNAL(tcp_recv_text(QString)),this,SLOT(m_recv_text(QString)));
     //输入文本框安装事件过滤器
     ui->msg_input_textEdit->installEventFilter(this);
 }
@@ -140,8 +142,10 @@ void ChatWidget::on_login_pushButton_clicked()
         QMessageBox::critical(this,u8"错误",u8"登陆请求失败！",QMessageBox::Ok);
         return;
     }
-    //接收后端登陆成功/失败消息提示
-    head = m_tcpConn->recvData();
+
+}
+//接收登陆请求回应
+void ChatWidget::m_login_response(tcp_protocol::communication_head head){
     //解析从服务器收到的head数据
     if(head.event == tcp_protocol::communication_events::LOGIN_FAILED){
         QMessageBox::information(this,u8"提示",u8"帐号或密码错误，登陆失败！",QMessageBox::Ok);
@@ -155,12 +159,14 @@ void ChatWidget::on_login_pushButton_clicked()
 bool ChatWidget::eventFilter(QObject *watched, QEvent *event){
     if(watched == ui->msg_input_textEdit && event->type() == QEvent::KeyPress){
         QKeyEvent *keyEvent = static_cast<QKeyEvent*>(event);
+//        qDebug() << "Key pressed: " << keyEvent->key();
         //回车键事件
         if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
             // 检查是否按下了 Shift 键
             if (!(keyEvent->modifiers() & Qt::ShiftModifier)) {
                 // 没有按 Shift+回车键，发送消息，否则默认换行
                 key_return_mInputTextEdit();
+                return true;
             }
         }
     }
@@ -171,6 +177,7 @@ bool ChatWidget::eventFilter(QObject *watched, QEvent *event){
 void ChatWidget::key_return_mInputTextEdit(){
     //1. 获取数据
     QString input_msg = ui->msg_input_textEdit->toPlainText();
+    if(input_msg.trimmed().isEmpty()) return;
 //    QString input_msg = u8"123";
     //TODO: 文件/图片消息，如何链接到input_textEdit中？
     //2. 发送到服务器
@@ -199,7 +206,7 @@ void ChatWidget::key_return_mInputTextEdit(){
     ui->msg_input_textEdit->moveCursor(QTextCursor::Start);
 }
 
-//发送数据，渲染list widget
+//发送数据，渲染 list widget
 void ChatWidget::m_send_text_msg(const QString &input_msg){
     QLabel *label = new QLabel(input_msg, this);
     //启用标签的自动换行功能
@@ -218,8 +225,26 @@ void ChatWidget::m_send_text_msg(const QString &input_msg){
 
     ui->msg_output_listWidget->addItem(item);
     ui->msg_output_listWidget->setItemWidget(item, widgetContainer);
+    ui->msg_input_textEdit->clear();
+
 }
 
+//接收到文本消息，渲染到 list widget
+void ChatWidget::m_recv_text(QString text){
+    QLabel *label = new QLabel(text,this);
+    label->setWordWrap(true);
+    QWidget *widgetContainer = new QWidget(this);
+    QHBoxLayout *layout = new QHBoxLayout(widgetContainer);
+    layout->addWidget(label);
+    layout->addStretch();
+    layout->setContentsMargins(20,10,0,10);
+    layout->setSpacing(0);
+
+    QListWidgetItem *item = new QListWidgetItem(ui->msg_output_listWidget);
+    item->setSizeHint(widgetContainer->sizeHint());
+    ui->msg_output_listWidget->addItem(item);
+    ui->msg_output_listWidget->setItemWidget(item, widgetContainer);
+}
 
 
 
