@@ -5,6 +5,9 @@
 #include <openssl/md5.h>
 #include <openssl/evp.h>
 #include <chrono>
+#include <fcntl.h>
+#include <cerrno>
+#include <cstring>
 // 将二进制数据转换回十六进制字符串
 std::string MsgUtils::toHex(const char* data, size_t length) {
     const char hex_digits[] = "0123456789abcdef";
@@ -54,16 +57,40 @@ std::string MsgUtils::stringToMD5(const std::string& input) {
 //读取数据是否错误
 bool MsgUtils::readError(const int &ret,int epfd,int fd){
     if(ret < 0){
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // 数据暂时不可用，等待一段时间再重试
+            usleep(1000); // 1毫秒
+        }
         std::cout<<"[ERROR]read 数据失败！"<<std::endl;
         return false;
     }else if(ret == 0){
         //对端关闭，修改事件
         //TODO:通过修改事件，在遍历epoll时关闭，当并发很高时，是否会影响性能？
-        std::cout<<fd<<" 关闭连接"<<std::endl;
         struct epoll_event ev;
         ev.data.fd = fd;
         ev.events = EPOLLRDHUP;
-        epoll_ctl(epfd,EPOLL_CTL_MOD,epfd,&ev);
+        epoll_ctl(epfd,EPOLL_CTL_MOD,fd,&ev);
+        return false;
+    }
+    return true;
+}
+
+//写数据是否错误
+bool MsgUtils::writeError(const int &ret,int epfd,int fd){
+    if(ret < 0){
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // 数据暂时不可用，等待一段时间再重试
+            usleep(1000); // 1毫秒
+        }
+        std::cout<<"[ERROR]read 数据失败！"<<std::endl;
+        return false;
+    }else if(ret == 0){
+        //对端关闭，修改事件
+        //TODO:通过修改事件，在遍历epoll时关闭，当并发很高时，是否会影响性能？
+        struct epoll_event ev;
+        ev.data.fd = fd;
+        ev.events = EPOLLRDHUP;
+        epoll_ctl(epfd,EPOLL_CTL_MOD,fd,&ev);
         return false;
     }
     return true;
@@ -79,4 +106,32 @@ uint64_t MsgUtils::getCurrentTimeInSeconds() {
 
     // 转换为64位整数
     return static_cast<uint64_t>(duration.count());
+}
+
+void MsgUtils::set_nonblocking(int &fd) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags == -1) {
+        std::cerr<<"fcntl() error: "<<strerror(errno)<<std::endl;
+        return;
+    }
+    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
+        std::cerr<<"fcntl() error: "<<strerror(errno)<<std::endl;
+        return;
+    }
+}
+
+void MsgUtils::epoll_mod_event_read(int &epfd,int &fd){
+    struct epoll_event ev;
+    MsgUtils::set_nonblocking(fd);
+    ev.data.fd = fd;
+    ev.events = EPOLLIN|EPOLLET;
+    epoll_ctl(epfd,EPOLL_CTL_MOD,fd,&ev);
+}
+
+void MsgUtils::epoll_mod_event_write(int &epfd,int &fd){
+    struct epoll_event ev;
+    MsgUtils::set_nonblocking(fd);
+    ev.data.fd = fd;
+    ev.events = EPOLLOUT|EPOLLET;
+    epoll_ctl(epfd,EPOLL_CTL_MOD,fd,&ev);
 }
