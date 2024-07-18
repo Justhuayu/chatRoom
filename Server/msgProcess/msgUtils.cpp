@@ -1,4 +1,5 @@
 #include "msgUtils.h"
+#include "msgProcess.h"
 #include <iostream>
 #include <unistd.h>
 #include <sys/epoll.h>
@@ -108,6 +109,7 @@ uint64_t MsgUtils::getCurrentTimeInSeconds() {
     return static_cast<uint64_t>(duration.count());
 }
 
+//设置为非阻塞
 void MsgUtils::set_nonblocking(int &fd) {
     int flags = fcntl(fd, F_GETFL, 0);
     if (flags == -1) {
@@ -120,6 +122,7 @@ void MsgUtils::set_nonblocking(int &fd) {
     }
 }
 
+//设置epoll 读
 void MsgUtils::epoll_mod_event_read(int &epfd,int &fd){
     struct epoll_event ev;
     MsgUtils::set_nonblocking(fd);
@@ -127,7 +130,7 @@ void MsgUtils::epoll_mod_event_read(int &epfd,int &fd){
     ev.events = EPOLLIN|EPOLLET;
     epoll_ctl(epfd,EPOLL_CTL_MOD,fd,&ev);
 }
-
+//设置epoll 写
 void MsgUtils::epoll_mod_event_write(int &epfd,int &fd){
     struct epoll_event ev;
     MsgUtils::set_nonblocking(fd);
@@ -135,3 +138,4 @@ void MsgUtils::epoll_mod_event_write(int &epfd,int &fd){
     ev.events = EPOLLOUT|EPOLLET;
     epoll_ctl(epfd,EPOLL_CTL_MOD,fd,&ev);
 }
+
