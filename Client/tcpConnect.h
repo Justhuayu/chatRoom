@@ -24,8 +24,9 @@ signals:
     void tcp_connect_error(const QString &error);//tcp连接错误
     void tcp_login_response(tcp_protocol::communication_head head);
     void tcp_recv_text(const QString &text);//接收到文本
-    void tcp_recv_img();//接收到图片
+    void tcp_recv_file_link(const QString &text);//接收文件下载地址
     void tcp_recv_file();//接收文件
+
 private:
     QTcpSocket *m_socket;
 private slots:
