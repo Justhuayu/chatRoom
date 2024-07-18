@@ -10,5 +10,6 @@ public:
     static void set_nonblocking(int &fd);//设置fd为非阻塞
     static void epoll_mod_event_read(int &epfd,int &fd);//设置事件为读
     static void epoll_mod_event_write(int &epfd,int &fd);//设置事件为写
-    
+    static uint64_t getFileSize(const std::string& filepath);//获取文件大小
+
 };

@@ -83,7 +83,7 @@ bool MsgUtils::writeError(const int &ret,int epfd,int fd){
             // 数据暂时不可用，等待一段时间再重试
             usleep(1000); // 1毫秒
         }
-        std::cout<<"[ERROR]read 数据失败！"<<std::endl;
+        std::cout<<"[ERROR]write 数据失败！"<<std::endl;
         return false;
     }else if(ret == 0){
         //对端关闭，修改事件
@@ -138,4 +138,15 @@ void MsgUtils::epoll_mod_event_write(int &epfd,int &fd){
     ev.events = EPOLLOUT|EPOLLET;
     epoll_ctl(epfd,EPOLL_CTL_MOD,fd,&ev);
 }
-
+//获取文件大小
+uint64_t MsgUtils::getFileSize(const std::string& filepath) {
+    std::FILE* file = std::fopen(filepath.c_str(), "rb");
+    if (!file) {
+        std::cerr << "Error opening file: " << filepath << std::endl;
+        return 0;
+    }
+    std::fseek(file, 0, SEEK_END);
+    uint64_t filesize = std::ftell(file);
+    std::fclose(file);
+    return filesize;
+}
