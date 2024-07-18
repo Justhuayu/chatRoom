@@ -27,12 +27,17 @@ void MsgProcess::run(struct epoll_event &event){
 
 //处理读事件
 void MsgProcess::processRead(){
+    if(!m_isReadHead) return;
     //1. 从read buffer中读取头
     tcp_protocol::communication_head head;
     memset(&head,0,sizeof(head));
     ssize_t ret =read(this->m_eventFd,&head,sizeof(head));
     std::cout<<m_eventFd<<" "<<ret<<" "<<static_cast<unsigned int>(head.event)<<" "<<head.size<<" "<<head.time<<" "<<head.info_size<<std::endl;
-    if(!MsgUtils::readError(ret,this->m_epfd,this->m_eventFd)) return;
+    if(!MsgUtils::readError(ret,this->m_epfd,this->m_eventFd)) 
+    {
+        std::cout<<"2"<<std::endl;
+        return;
+    }
     //2. 根据事件类型，读取数据
     stateTransition(head);
 }
@@ -44,21 +49,24 @@ void MsgProcess::processWrite(){
     if(!this->process_write_text()){
         std::cout<<"fd: "<<m_eventFd<<" send text ERROR!"<<std::endl;
     }
-    //发送图片
-    std::cout<<"⬇⬇########################################⬇⬇"<<std::endl;
-
-    if(!this->process_write_file()){
+    //发送文件链接
+    if(!this->process_write_file_link()){
         std::cout<<"fd: "<<m_eventFd<<" send file link ERROR!"<<std::endl;
+    }
+    //发送文件
+    std::cout<<"⬇⬇########################################⬇⬇"<<std::endl;
+    if(!this->process_write_file()){
+        std::cout<<"fd: "<<m_eventFd<<" send file ERROR!"<<std::endl;
     }
     std::cout<<"⬆⬆########################################⬆⬆"<<std::endl;
 
-    //发送文件
     //3. 写完数据后改成读事件
     //TODO: 不修改为读事件，会阻塞?
     MsgUtils::epoll_mod_event_read(m_epfd,m_eventFd);
 }
 
-//处理写文本
+
+//处理发送文本
 bool MsgProcess::process_write_text(){
     if(m_text_buffer.empty()) return true;
     tcp_protocol::communication_head head;
@@ -92,8 +100,8 @@ bool MsgProcess::process_write_text(){
     }
     return true;
 }
-//处理写文件
-bool MsgProcess::process_write_file(){
+//处理发送文件链接
+bool MsgProcess::process_write_file_link(){
     if(m_file_link_buffer.empty()) return true;
     tcp_protocol::communication_head head;
     memset(&head,0,sizeof(head));
@@ -123,14 +131,95 @@ bool MsgProcess::process_write_file(){
             ret = write(m_eventFd,data_ptr + send_data->size() - remind_data,remind_data);
             if(!MsgUtils::writeError(ret,this->m_epfd,this->m_eventFd)) return false;
             remind_data -= ret;
-            std::cout<<"send file link : "<<ret<<std::endl;
         }
     }
-    std::cout<<"send file success!"<<std::endl;
+    std::cout<<"send file link success!"<<std::endl;
 
     return true;
 }
 
+bool MsgProcess::process_write_file(){
+    //发送文件
+    std::string *filename;
+    {
+        std::lock_guard<std::mutex> lock(m_filename_mutex);
+        filename = this->m_send_filename.get();
+    }
+    //没有要发送文件请求
+    if(!filename) return true;
+    std::string filepath = FILE_DIR + *filename;
+    std::cout<<"send file: "<<filepath<<std::endl;
+    //1.发送文件头
+    tcp_protocol::communication_head head;
+    head.event = tcp_protocol::communication_events::SERVER_SEND_FILE;
+    head.size = MsgUtils::getFileSize(filepath);
+    head.time = MsgUtils::getCurrentTimeInSeconds();
+    head.info_size = filename->size();
+    int ret = write(m_eventFd,&head,sizeof(head));
+    if(!MsgUtils::writeError(ret,m_epfd,m_eventFd)){
+        {
+            std::lock_guard<std::mutex> lock(m_filename_mutex);
+            this->m_send_filename.reset();
+        }
+        return false;
+    } 
+    //2. 发送文件名信息
+    unsigned long remind_data = head.info_size;
+    const char* c_filename = filename->c_str();
+    while(remind_data>0){
+        ret = write(m_eventFd,c_filename + filename->size() - remind_data,remind_data);
+        if(!MsgUtils::writeError(ret,m_epfd,m_eventFd)){
+            {
+                std::lock_guard<std::mutex> lock(m_filename_mutex);
+                this->m_send_filename.reset();
+            }
+            return false;
+        } 
+        remind_data -= ret;
+        std::cout<<"send filename : "<<ret<<std::endl;
+    }
+    //3.读文件，发送文件数据
+    std::FILE* file = std::fopen(filepath.c_str(),"rb");
+    if(!file){
+        std::cout<<"Error opening file: " << filepath << std::endl;
+        return false;
+    }
+    char buffer[buffer_sizes::SERVER_SEND_FILE_BUFFER_SIZE];
+    remind_data = head.size;
+    while(remind_data > 0){
+        //1. 从文件读到buffer
+        int tmp = std::min(remind_data,sizeof(buffer));
+        memset(buffer,0,sizeof(buffer));
+        ret = fread(buffer,1,tmp,file);
+        if(ret<=0){
+            std::cout<<"fread error!"<<std::endl;
+            {
+                std::lock_guard<std::mutex> lock(m_filename_mutex);
+                this->m_send_filename.reset();
+            }
+            return false;
+        }
+        //2.socket 发送buffer
+        ret = write(m_eventFd,buffer,ret);
+        if(!MsgUtils::writeError(ret,m_epfd,m_eventFd)){
+            {
+                std::lock_guard<std::mutex> lock(m_filename_mutex);
+                this->m_send_filename.reset();
+            }
+            return false;
+        } 
+        std::cout<<"send file: "<<ret<<std::endl;
+        remind_data -= ret;
+    }
+    std::cout<<"send file success!"<<std::endl;
+    //清空发送文件 m_send_filename
+    {
+        std::lock_guard<std::mutex> lock(m_filename_mutex);
+        this->m_send_filename.reset();
+    }
+    return true;
+
+}
 
 //处理对端关闭
 void MsgProcess::processClose(){
@@ -170,20 +259,28 @@ bool MsgProcess::stateTransition(tcp_protocol::communication_head &head){
         //退出登陆
         break;
     case tcp_protocol::CLIENT_SEND_TEXT:
-        //发送文本数据请求
+        //客户端发送文本数据请求
         func_client_send_text(head);
         break;
     case tcp_protocol::SERVER_SEND_TEXT:
+        //服务器发送文本数据
         func_server_send_text();
         break;
     case tcp_protocol::CLIENT_UPLOAD_FILE:
+        //客户端上传文件
         func_client_upload_file(head);
         break;
     case tcp_protocol::SERVER_SEND_FILE_LINK:
+        //服务器发送文件链接
         func_server_send_flie_link();
         break;
+    case tcp_protocol::CLIENT_REQUEST_FILE:
+        //客户端发送文件下载请求
+        func_client_request_file(head);
+        break;
     case tcp_protocol::SERVER_SEND_FILE:
-        // func_server_handler_file();
+        //服务端发送文件
+        func_server_handler_file();
         break;
     default:
         std::cout<<"status 错误"<<std::endl;
@@ -193,21 +290,27 @@ bool MsgProcess::stateTransition(tcp_protocol::communication_head &head){
     return true;
 }
 
+
+
 //处理前端发送的文件数据
 bool MsgProcess::func_client_upload_file(tcp_protocol::communication_head &head){
     std::cout<<"recv file info_size :"<<head.info_size<<std::endl;
-    
     //1.读数据，保存到本地
     //if (!m_isLogin) return false;
+    //后面需要存储文件，复用文件buffer
     char buffer[buffer_sizes::CLIENT_SEND_FILE_BUFFER_SIZE];
-    unsigned long remind_data = head.info_size;
     //1. 读取文件名字
+    unsigned long remind_data = head.info_size;
     std::string filename="";
     while(remind_data>0){
         int tmp = std::min(remind_data,sizeof(buffer));
         memset(buffer,0,sizeof(buffer));
         int ret = read(this->m_eventFd,buffer,tmp);
-        if(!MsgUtils::readError(ret,this->m_epfd,this->m_eventFd)) return false;
+        if(!MsgUtils::readError(ret,this->m_epfd,this->m_eventFd)) 
+        {
+            std::cout<<"1"<<std::endl;
+            return false;
+        }
         remind_data -= ret;
         std::cout<<"ret: "<<ret<<" buffer: "<<buffer<<std::endl;
         filename.append(buffer,ret);
@@ -223,6 +326,7 @@ bool MsgProcess::func_client_upload_file(tcp_protocol::communication_head &head)
     }
     //2. 读取文件
     remind_data = head.size;
+    m_isReadHead = false;
     while(remind_data>0){
         //从socket读取数据
         int tmp = std::min(remind_data,sizeof(buffer));
@@ -231,20 +335,27 @@ bool MsgProcess::func_client_upload_file(tcp_protocol::communication_head &head)
         remind_data -= ret;
         std::cout<<"ret: "<<ret<<std::endl;
 
-        if(!MsgUtils::readError(ret,this->m_epfd,this->m_eventFd)) return false;
-        //写入文件
+        if(!MsgUtils::readError(ret,this->m_epfd,this->m_eventFd)) 
+        {
+            m_isReadHead = true;
+            return false;
+        }
+        // 写入文件
         ssize_t write_ret = write(file_fd,buffer,ret);
         if(write_ret != ret){
             std::cout<<"write file error!"<<std::endl;
             close(file_fd);
+                m_isReadHead = true;
+
             return false;
         }
     }
+    m_isReadHead = true;
     close(file_fd);
     //3.文件地址存储到缓冲区
     //TODO：存储到数据库
     std::shared_ptr<std::string> recv_file = std::make_shared<std::string>();
-    recv_file->append(filepath);
+    recv_file->append(filename);
     {
         std::lock_guard<std::mutex> lock(m_file_link_buffer_mutex);
         std::cout<<"recv_file: "<<*recv_file<<std::endl;
@@ -285,10 +396,46 @@ bool MsgProcess::func_server_send_flie_link()
 }
 
 
+//处理前端发送的下载文件请求
+bool MsgProcess::func_client_request_file(tcp_protocol::communication_head &head){
+    std::cout<<"recv file download request"<<std::endl;
+    //if (!m_isLogin) return false;
+    //1. 读取下载文件
+    char buffer[buffer_sizes::FILENAME_SIZE_BUFFER_SIZE];
+    std::shared_ptr<std::string> filename = std::make_shared<std::string>();
+    unsigned long remind_data = head.size;
+    while(remind_data>0){
+        int tmp = std::min(remind_data,sizeof(buffer));
+        memset(buffer,0,sizeof(buffer));
+        int ret = read(m_eventFd,buffer,tmp);
+        if(!MsgUtils::readError(ret,m_epfd,m_eventFd))
+        {
+            std::cout<<"3"<<std::endl;
+            return false;
+        }
+        remind_data -= ret;
+        filename->append(buffer,ret);
+    }
+    std::cout<<"request filename: "<<*filename<<std::endl;
+    //2. 存储下载文件名
+    {
+        std::lock_guard<std::mutex> lock(m_filename_mutex);
+        if(m_send_filename) std::cout<<"发送文件m_send_filename不为空"<<std::endl;
+        m_send_filename = filename;
+    }
+    //3. 发送下载文件
+    head.size = 0;
+    head.event = tcp_protocol::SERVER_SEND_FILE;
+    stateTransition(head);
+    return true;
+}
+
 //下载文件
 bool MsgProcess::func_server_handler_file()
 {
-    std::cout<<"通知前端"<<std::endl;
+    std::cout<<"下载文件"<<std::endl;
+    //修改当前fd为写事件，用于发送文件
+    MsgUtils::epoll_mod_event_write(m_epfd,m_eventFd);
     return true;
 }
 
@@ -304,7 +451,12 @@ bool MsgProcess::func_client_send_text(tcp_protocol::communication_head &head){
     while(remind_data>0){
         int tmp = std::min(remind_data,sizeof(buffer));
         int ret = read(this->m_eventFd,buffer,tmp);
-        if(!MsgUtils::readError(ret,this->m_epfd,this->m_eventFd)) return false;
+        if(!MsgUtils::readError(ret,this->m_epfd,this->m_eventFd)){
+            
+            std::cout<<"4"<<std::endl;
+            return false;
+            
+        }
         remind_data -= ret;
         recv_text->append(buffer,ret);
     }
@@ -399,7 +551,11 @@ bool MsgProcess::func_login(tcp_protocol::communication_head &head){
     //边沿模式循环读数据
     while(remind_data>0){
         ret = read(this->m_eventFd,buffer+head.size-remind_data,remind_data);
-        if(!MsgUtils::readError(ret,this->m_epfd,this->m_eventFd)) return false;
+        if(!MsgUtils::readError(ret,this->m_epfd,this->m_eventFd))
+        {
+            std::cout<<"5"<<std::endl;
+            return false;
+        }
         remind_data -= ret;
     }
     //2. data二进制转换成16进制md5
