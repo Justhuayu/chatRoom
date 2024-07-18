@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <QKeyEvent>
 #include "protocol.h"
+#include <QFileDialog>
 ChatWidget::ChatWidget(QWidget *parent)
     : QWidget(parent)
     , ui(new Ui::chatWidget) ,m_tcpConn(new TcpConnect(this))
@@ -16,11 +17,12 @@ ChatWidget::ChatWidget(QWidget *parent)
     ui->setupUi(this);
 
     connect(m_tcpConn,SIGNAL(tcp_connected()),this,SLOT(m_tcp_connected()));
-    connect(m_tcpConn,SIGNAL(tcp_connect_error(QString)),this,SLOT(m_tcp_connecte_error(QString)));
+    connect(m_tcpConn,SIGNAL(tcp_connect_error(QString)),this,SLOT(m_tcp_connect_error(QString)));
     connect(m_tcpConn,SIGNAL(tcp_disconnected()),this,SLOT(m_tcp_disconnected()));
-    connect(this,SIGNAL(sendTextMsg(const QString)),this,SLOT(m_send_text_msg(const QString)));
+    connect(this,SIGNAL(sendTextMsg(QString)),this,SLOT(m_send_text_msg(QString)));
     connect(m_tcpConn,SIGNAL(tcp_login_response(tcp_protocol::communication_head)),this,SLOT(m_login_response(tcp_protocol::communication_head)));
     connect(m_tcpConn,SIGNAL(tcp_recv_text(QString)),this,SLOT(m_recv_text(QString)));
+    connect(m_tcpConn,SIGNAL(tcp_recv_file_link(QString)),this,SLOT(m_recv_file_link(QString)));
     //输入文本框安装事件过滤器
     ui->msg_input_textEdit->installEventFilter(this);
 }
@@ -60,7 +62,7 @@ void ChatWidget::m_tcp_disconnected(){
 }
 
 //tcp连接失败
-void ChatWidget::m_tcp_connecte_error(const QString &error){
+void ChatWidget::m_tcp_connect_error(const QString &error){
     QMessageBox::information(this,u8"提示",u8"ip或端口号错误，请检查!\n"+error,QMessageBox::Ok);
     m_tcpConn->tcp_isConnect = false;
     chatWidget_change();
@@ -81,7 +83,6 @@ void ChatWidget::chatWidget_change(){
     ui->msg_input_textEdit->setEnabled(login_flag);
     ui->msg_output_listWidget->setEnabled(login_flag);
     ui->file_toolButton->setEnabled(login_flag);
-    ui->img_toolButton->setEnabled(login_flag);
     //登陆模块
     ui->login_pushButton->setEnabled(conn_flag && !login_flag);
     ui->register_pushButton->setEnabled(conn_flag && !login_flag);
@@ -207,7 +208,7 @@ void ChatWidget::key_return_mInputTextEdit(){
 }
 
 //发送数据，渲染 list widget
-void ChatWidget::m_send_text_msg(const QString &input_msg){
+void ChatWidget::m_send_text_msg(const QString input_msg){
     QLabel *label = new QLabel(input_msg, this);
     //启用标签的自动换行功能
     label->setWordWrap(true);
@@ -230,7 +231,7 @@ void ChatWidget::m_send_text_msg(const QString &input_msg){
 }
 
 //接收到文本消息，渲染到 list widget
-void ChatWidget::m_recv_text(QString text){
+void ChatWidget::m_recv_text(const QString text){
     QLabel *label = new QLabel(text,this);
     label->setWordWrap(true);
     QWidget *widgetContainer = new QWidget(this);
@@ -246,22 +247,48 @@ void ChatWidget::m_recv_text(QString text){
     ui->msg_output_listWidget->setItemWidget(item, widgetContainer);
 }
 
+//点击发送文件
+void ChatWidget::on_file_toolButton_clicked()
+{
+    //1. 获取文件名字
+    QString filepath = QFileDialog::getOpenFileName(this, tr("Open File"), "", tr("All Files (*)"));
+    if(filepath.isEmpty()) return;
+    qDebug()<<"filepath: "<<filepath;
+    //2. 打开文件
+    QFile file(filepath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::critical(this, tr("错误"), tr("打开文件失败"));
+        return;
+    }
+    QByteArray send_data = file.readAll();
+    file.close();
+    //3. 发送文件
+    // 数据头
+    tcp_protocol::communication_head head;
+    head.event = tcp_protocol::communication_events::CLIENT_UPLOAD_FILE;
+    head.size = send_data.size();
+    head.time = static_cast<quint64>(QDateTime::currentSecsSinceEpoch());
+    //文件长度
+    QFileInfo fileInfo(filepath);
+    QString filename = fileInfo.fileName();
+    qDebug()<<"filename: "<<filename;
+    QByteArray fileByte = filename.toUtf8();
+    head.info_size = fileByte.size();
 
+    std::unique_ptr<char[]> data(new char[head.size+head.info_size]);
+    memset(data.get(),0,(head.size + head.info_size)*sizeof(char));
+    std::memcpy(data.get(),fileByte.data(),head.info_size);
+    std::memcpy(data.get()+head.info_size, send_data.data(), send_data.size());
+    if(!m_tcpConn->sendData(head,data.get())){
+        QMessageBox::critical(this,u8"错误",u8"发送数据失败！",QMessageBox::Ok);
+        return;
+    }
+    //4. 发送信号，渲染界面
+}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+//收到下载链接，渲染到聊天界面中
+void ChatWidget::m_recv_file_link(const QString text){
+    qDebug()<<"recv file link: "<<text;
+}
 
 
