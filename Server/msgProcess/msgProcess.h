@@ -6,6 +6,7 @@
 #include <list>
 #include <mutex>
 #include <memory>
+const std::string FILE_DIR = "/home/lkh/Documents/chatRoom/src/";
 class MsgProcess{
 public:
     MsgProcess(int epfd,int eventFd,std::map<int,MsgProcess*> *fd2MsgProcess):
@@ -24,6 +25,13 @@ private:
     bool func_login_failed(tcp_protocol::communication_head &head);//登陆失败
     bool func_client_send_text(tcp_protocol::communication_head &head);//处理前端发送文本数据
     bool func_server_send_text();//广播前端发送的文本数据到所有fd
+    bool func_client_upload_file(tcp_protocol::communication_head &head);//处理前端发送的文件数据
+    bool func_server_handler_file();//
+    bool func_server_send_flie_link();//通知前端渲染下载连接
+
+    bool process_write_text();//处理写文本
+    bool process_write_file();//处理写文件
+
 
 private:
     bool m_isLogin;//是否登陆
@@ -32,6 +40,9 @@ private:
 
     std::list<std::shared_ptr<std::string>> m_text_buffer;//双向链表存储文本指针
     std::mutex m_text_buffer_mutex;//文本缓冲区锁
+
+    std::list<std::shared_ptr<std::string>> m_file_link_buffer;//双向链表存储代发送文件链接指针
+    std::mutex m_file_link_buffer_mutex;//文件指针缓冲区锁
 
     std::map<int,MsgProcess*> *m_fd2MsgProcess;//socket fd和MsgProcess索引对 指针
     //TODO: 将协议头放在类里，是否有问题？

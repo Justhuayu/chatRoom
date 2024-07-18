@@ -153,7 +153,7 @@ void EpollServer::handler_event(struct epoll_event event){
     std::cout<<std::endl;
     auto it = m_fd2MsgProcess.find(event.data.fd);
     if(it == m_fd2MsgProcess.end()){
-        std::cout<<"fd"<<event.data.fd<< "未连接，读事件失败。"<<std::endl;
+        std::cout<<"fd"<<event.data.fd<< "未连接或已断开连接"<<std::endl;
         return;
     }
 
