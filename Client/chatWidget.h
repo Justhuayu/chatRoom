@@ -29,11 +29,14 @@ private slots:
     void on_connect_pushButton_clicked();//连接/断开按钮
     void m_tcp_connected();//tcp连接成功，改变按钮
     void m_tcp_disconnected();//tcp断开连接，改变按钮
-    void m_tcp_connect_error(const QString &error);//tcp连接错误
-    void m_send_text_msg(const QString input_msg);//发送text信息
+    void m_tcp_connect_error(QString error);//tcp连接错误
+    void m_send_text_msg(QString input_msg);//发送text信息
     void m_login_response(tcp_protocol::communication_head head);//接收登陆请求回应
-    void m_recv_text(const QString text);//接收到文本信息
-    void m_recv_file_link(const QString text);//接收文本下载地址
+    void m_recv_text(QString text);//接收到文本信息
+    void m_recv_file_link(QString text);//接收文本下载地址
+    void m_request_download_file();//点击下载按钮，请求下载
+    void m_recv_file(QString filename,QByteArray data);//接收文件
+
 
     void on_register_pushButton_clicked();
     void on_login_pushButton_clicked();

@@ -26,8 +26,7 @@ bool TcpConnect::sendData(const tcp_protocol::communication_head &head,const cha
     }
     QByteArray send_buffer;
     send_buffer.append(reinterpret_cast<const char*>(&head), sizeof(head));
-//    send_buffer.append(data,buffer_sizes::CLIENT_SEND_TEXT_BUFFER_SIZE);
-    send_buffer.append(data,head.size+head.info_size);
+    send_buffer.append(data,head.info_size + head.size);
     //tcp socket发送
     int ret = m_socket->write(send_buffer);
     m_socket->flush();
@@ -81,12 +80,14 @@ void TcpConnect::m_tcp_handler_read(){
         //1.读取head数据
         //静态flag，控制读头还是数据，否则会数据丢失
         static bool isReadingHead = true;
+        static bool isReadInfoData = false;
         tcp_protocol::communication_head head;
         if (isReadingHead) {
             if (m_socket->bytesAvailable() < static_cast<int>(sizeof(head))) {
                 return;
             }
             m_socket->read(reinterpret_cast<char*>(&head), sizeof(head));
+            if(head.info_size >0 ) isReadInfoData = true;
             isReadingHead = false;
         }
         //2. 根据事件，发送函数，处理 res_data (类型转换)
@@ -130,7 +131,6 @@ void TcpConnect::m_tcp_handler_read(){
                 res_data.resize(head.size);
                 if(!isReadingHead){
                     if(m_socket->bytesAvailable()<head.size){
-                        qDebug()<<"读文件链接失败！";
                         return;
                     }
                     m_socket->read(res_data.data(),head.size);
@@ -141,6 +141,45 @@ void TcpConnect::m_tcp_handler_read(){
             case tcp_protocol::SERVER_SEND_FILE:
             {
                 //服务端发送文件
+                QByteArray res_data;
+                res_data.clear();
+                res_data.resize(head.size);
+                QString filename;
+                if(!isReadingHead){
+                    //1. 先读取文件名
+                    if(isReadInfoData){
+                        if(m_socket->bytesAvailable()<head.info_size){
+                            return;
+                        }
+                        m_socket->read(res_data.data(),head.info_size);
+                        filename = QString::fromUtf8(res_data,head.info_size);
+                        isReadInfoData = false;
+                    }
+                    //2. 读取文件
+                    res_data.clear();
+                    char buffer[buffer_sizes::SERVER_SEND_FILE_BUFFER_SIZE];
+                    quint64 remind_data = head.size;
+                    while(remind_data>0){
+                        int tmp = remind_data<buffer_sizes::SERVER_SEND_FILE_BUFFER_SIZE?remind_data:buffer_sizes::SERVER_SEND_FILE_BUFFER_SIZE;
+                        while(m_socket->bytesAvailable()<tmp){
+                            if (!m_socket->waitForReadyRead(3000)){
+                                qDebug()<<"wait";
+                            }
+                        }
+                        qDebug() << "Attempting to read" << tmp << "bytes, bytesAvailable:" << m_socket->bytesAvailable();
+                        memset(buffer,0,sizeof(buffer));
+                        int ret = m_socket->read(buffer,tmp);
+                        if (ret < 0) {
+                            qDebug() << "Error while reading data.";
+                            return;
+                        }
+                        remind_data -= ret;
+                        res_data.append(buffer,ret);
+                    }
+
+                }
+                emit tcp_recv_file(filename,res_data);
+                break;
             }
             default:{
                 qDebug()<<"error: "<<head.event<<" "<<head.size<<" "<<head.time<<" "<<head.info_size;

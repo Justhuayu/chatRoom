@@ -145,7 +145,7 @@
            <string>...</string>
           </property>
           <property name="icon">
-           <iconset resource="src/icons/icons.qrc">
+           <iconset>
             <normaloff>:/icons/send_file.png</normaloff>:/icons/send_file.png</iconset>
           </property>
          </widget>
@@ -464,14 +464,32 @@
        <property name="frameShadow">
         <enum>QFrame::Raised</enum>
        </property>
+       <layout class="QVBoxLayout" name="verticalLayout">
+        <property name="spacing">
+         <number>0</number>
+        </property>
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QListWidget" name="file_down_listWidget"/>
+        </item>
+       </layout>
       </widget>
      </item>
     </layout>
    </item>
   </layout>
  </widget>
- <resources>
-  <include location="src/icons/icons.qrc"/>
- </resources>
+ <resources/>
  <connections/>
 </ui>

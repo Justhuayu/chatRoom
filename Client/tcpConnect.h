@@ -21,11 +21,11 @@ public:
 signals:
     void tcp_connected();//tcp连接成功后，通知widget
     void tcp_disconnected();//tco断开连接后，通知widget
-    void tcp_connect_error(const QString &error);//tcp连接错误
+    void tcp_connect_error(QString error);//tcp连接错误
     void tcp_login_response(tcp_protocol::communication_head head);
-    void tcp_recv_text(const QString &text);//接收到文本
-    void tcp_recv_file_link(const QString &text);//接收文件下载地址
-    void tcp_recv_file();//接收文件
+    void tcp_recv_text(QString text);//接收到文本
+    void tcp_recv_file_link(QString text);//接收文件下载地址
+    void tcp_recv_file(QString filename,QByteArray data);//接收文件
 
 private:
     QTcpSocket *m_socket;

@@ -10,6 +10,7 @@
 #include <QKeyEvent>
 #include "protocol.h"
 #include <QFileDialog>
+#include <QStandardPaths>
 ChatWidget::ChatWidget(QWidget *parent)
     : QWidget(parent)
     , ui(new Ui::chatWidget) ,m_tcpConn(new TcpConnect(this))
@@ -23,6 +24,7 @@ ChatWidget::ChatWidget(QWidget *parent)
     connect(m_tcpConn,SIGNAL(tcp_login_response(tcp_protocol::communication_head)),this,SLOT(m_login_response(tcp_protocol::communication_head)));
     connect(m_tcpConn,SIGNAL(tcp_recv_text(QString)),this,SLOT(m_recv_text(QString)));
     connect(m_tcpConn,SIGNAL(tcp_recv_file_link(QString)),this,SLOT(m_recv_file_link(QString)));
+    connect(m_tcpConn,SIGNAL(tcp_recv_file(QString,QByteArray)),this,SLOT(m_recv_file(QString,QByteArray)));
     //输入文本框安装事件过滤器
     ui->msg_input_textEdit->installEventFilter(this);
 }
@@ -62,7 +64,7 @@ void ChatWidget::m_tcp_disconnected(){
 }
 
 //tcp连接失败
-void ChatWidget::m_tcp_connect_error(const QString &error){
+void ChatWidget::m_tcp_connect_error(QString error){
     QMessageBox::information(this,u8"提示",u8"ip或端口号错误，请检查!\n"+error,QMessageBox::Ok);
     m_tcpConn->tcp_isConnect = false;
     chatWidget_change();
@@ -260,8 +262,13 @@ void ChatWidget::on_file_toolButton_clicked()
         QMessageBox::critical(this, tr("错误"), tr("打开文件失败"));
         return;
     }
+    qDebug()<<"file size: "<<file.size();
     QByteArray send_data = file.readAll();
     file.close();
+    if(send_data.size() <=0){
+        QMessageBox::critical(this, tr("错误"), tr("上传失败"));
+        return;
+    }
     //3. 发送文件
     // 数据头
     tcp_protocol::communication_head head;
@@ -280,15 +287,89 @@ void ChatWidget::on_file_toolButton_clicked()
     std::memcpy(data.get(),fileByte.data(),head.info_size);
     std::memcpy(data.get()+head.info_size, send_data.data(), send_data.size());
     if(!m_tcpConn->sendData(head,data.get())){
-        QMessageBox::critical(this,u8"错误",u8"发送数据失败！",QMessageBox::Ok);
+        QMessageBox::critical(this,u8"错误",u8"上传文件失败！",QMessageBox::Ok);
         return;
     }
-    //4. 发送信号，渲染界面
 }
 
-//收到下载链接，渲染到聊天界面中
+//收到下载链接，渲染到file_down_listWdiget上
 void ChatWidget::m_recv_file_link(const QString text){
     qDebug()<<"recv file link: "<<text;
+    QLabel *label = new QLabel(text,this);
+    label->setWordWrap(true);
+    QPushButton *btn = new QPushButton(u8"下载",this);
+    connect(btn,SIGNAL(clicked()),this,SLOT(m_request_download_file()));
+
+    QWidget *widgetContainer = new QWidget(this);
+    QHBoxLayout *layout = new QHBoxLayout(widgetContainer);
+    layout->addWidget(label);
+    layout->addStretch();
+    layout->addWidget(btn);
+
+    layout->setContentsMargins(20,10,20,10);
+    layout->setSpacing(0);
+
+    QListWidgetItem *item = new QListWidgetItem(ui->file_down_listWidget);
+    item->setSizeHint(widgetContainer->sizeHint());
+    ui->file_down_listWidget->addItem(item);
+    ui->file_down_listWidget->setItemWidget(item, widgetContainer);
+}
+
+//点击下载按钮，请求下载
+void ChatWidget::m_request_download_file(){
+    QPushButton *btn = qobject_cast<QPushButton*>(sender());
+    if(!btn) return;
+    //获取btn所在widget
+    QWidget *btnWidget = btn->parentWidget();
+    if(!btnWidget) return;
+    //获取label
+    QLabel *label = btnWidget->findChild<QLabel*>();
+    if(!label) return;
+    QString filename = label->text();
+    qDebug()<<"click filename: "<<filename;
+    //发送下载请求
+    tcp_protocol::communication_head head;
+    head.event = tcp_protocol::communication_events::CLIENT_REQUEST_FILE;
+    head.time = static_cast<qint64>(QDateTime::currentSecsSinceEpoch());
+    QByteArray send_data = filename.toUtf8();
+    head.size = send_data.size();
+    std::unique_ptr<char[]> data = std::make_unique<char[]>(head.size);
+    std::memset(data.get(),0,head.size * sizeof(char));
+    std::memcpy(data.get(),send_data.data(),head.size);
+
+    if(!m_tcpConn->sendData(head,data.get())){
+        QMessageBox::critical(this,u8"错误",u8"下载文件失败！",QMessageBox::Ok);
+        return;
+    }
+}
+
+//接收文件，保存到本地
+void ChatWidget::m_recv_file(QString filename,QByteArray data){
+
+    QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    QString dir = QFileDialog::getExistingDirectory(this, u8"选择文件存储路径",
+                                                    defaultPath,
+                                                    QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+    while(dir.isEmpty()) {
+        QMessageBox::information(this, u8"提示", u8"路径为空，请重新选择");
+        dir = QFileDialog::getExistingDirectory(this, u8"选择文件存储路径",
+                                                defaultPath,
+                                                QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+    }
+   // 完整的文件路径
+    QString filePath = dir + "/" + filename;
+    // 创建并打开文件
+    qDebug()<<"save filepath: "<<filePath;
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly)) {
+        QMessageBox::warning(this, u8"错误", u8"无法创建文件: " + file.errorString());
+        return;
+    }
+    // 写入数据到文件
+    file.write(data);
+    file.close();
+    // 提示用户文件保存成功
+    QMessageBox::information(this, u8"提示", u8"文件保存成功: " + filePath);
 }
 
 
